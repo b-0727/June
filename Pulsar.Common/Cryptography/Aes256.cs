@@ -100,7 +100,7 @@ namespace Pulsar.Common.Cryptography
     private void EncryptInternal(byte[] nonce, byte[] plaintext, byte[] ciphertext, byte[] tag)
     {
 #if NET5_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NETSTANDARD2_1_OR_GREATER
-            using (var aesGcm = new AesGcm(_key))
+            using (var aesGcm = new AesGcm(_key, TagLength))
             {
                 aesGcm.Encrypt(nonce, plaintext, ciphertext, tag);
             }
@@ -114,7 +114,7 @@ namespace Pulsar.Common.Cryptography
         private void DecryptInternal(byte[] nonce, byte[] ciphertext, byte[] tag, byte[] plaintext)
         {
 #if NET5_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NETSTANDARD2_1_OR_GREATER
-            using (var aesGcm = new AesGcm(_key))
+            using (var aesGcm = new AesGcm(_key, TagLength))
             {
                 aesGcm.Decrypt(nonce, ciphertext, tag, plaintext);
             }
