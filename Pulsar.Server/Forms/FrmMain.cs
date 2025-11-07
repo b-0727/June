@@ -236,7 +236,7 @@ namespace Pulsar.Server.Forms
         {
             X509Certificate2 serverCertificate;
 #if DEBUG
-            serverCertificate = new DummyCertificate();
+            serverCertificate = DummyCertificate.Create();
 #else
             if (!File.Exists(Settings.CertificatePath))
             {
@@ -246,7 +246,8 @@ namespace Pulsar.Server.Forms
                     { }
                 }
             }
-            serverCertificate = new X509Certificate2(Settings.CertificatePath);
+            var certificateBytes = File.ReadAllBytes(Settings.CertificatePath);
+            serverCertificate = X509CertificateLoader.LoadPkcs12(certificateBytes, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
 #endif
             ListenServer = new PulsarServer(serverCertificate);
             ListenServer.ServerState += ServerState;
