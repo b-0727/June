@@ -8,6 +8,8 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Windows.Forms;
+using System.Collections.Generic;
+using Pulsar.Server.Extensions;
 
 namespace Pulsar.Server.Forms
 {
@@ -19,7 +21,8 @@ namespace Pulsar.Server.Forms
         {
             InitializeComponent();
             DarkModeManager.ApplyDarkMode(this);
-			ScreenCaptureHider.ScreenCaptureHider.Apply(this.Handle);
+            ScreenCaptureHider.ScreenCaptureHider.Apply(this.Handle);
+            LoadSanSuggestions();
         }
 
         private void SetCertificate(X509Certificate2 certificate)
@@ -27,6 +30,12 @@ namespace Pulsar.Server.Forms
             _certificate = certificate;
             txtDetails.Text = _certificate.ToString(false);
             btnSave.Enabled = true;
+
+            var sans = _certificate.GetSubjectAlternativeNames();
+            if (sans != null && sans.Count > 0)
+            {
+                txtSubjectAltNames.Text = string.Join(Environment.NewLine, sans);
+            }
         }
 
         private string GenerateRandomStringPair()
@@ -43,7 +52,8 @@ namespace Pulsar.Server.Forms
 
         private void btnCreate_Click(object sender, EventArgs e)
         {
-            SetCertificate(CertificateHelper.CreateCertificateAuthority(GenerateRandomStringPair(), 4096));
+            var entries = ParseSanEntries();
+            SetCertificate(CertificateHelper.CreateCertificateAuthority(GenerateRandomStringPair(), 4096, entries));
         }
 
         private void btnImport_Click(object sender, EventArgs e)
@@ -101,6 +111,8 @@ namespace Pulsar.Server.Forms
 
                 File.WriteAllBytes(Settings.CertificatePath, _certificate.Export(X509ContentType.Pkcs12));
 
+                Settings.TailscaleCertificateSans = ParseSanEntries().ToArray();
+
                 MessageBox.Show(this,
                     "Please backup the certificate now. Loss of the certificate results in loosing all clients!",
                     "Certificate backup", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -132,6 +144,47 @@ namespace Pulsar.Server.Forms
         private void btnExit_Click(object sender, EventArgs e)
         {
             Environment.Exit(0);
+        }
+
+        private void LoadSanSuggestions()
+        {
+            var existing = Settings.TailscaleCertificateSans ?? Array.Empty<string>();
+            if (existing.Length == 0 && !string.IsNullOrWhiteSpace(Settings.TailscaleFunnelEndpoint))
+            {
+                existing = new[] { ExtractHostFromEndpoint(Settings.TailscaleFunnelEndpoint) };
+            }
+
+            txtSubjectAltNames.Text = string.Join(Environment.NewLine, existing.Where(s => !string.IsNullOrWhiteSpace(s)));
+        }
+
+        private IEnumerable<string> ParseSanEntries()
+        {
+            if (string.IsNullOrWhiteSpace(txtSubjectAltNames.Text))
+            {
+                return Enumerable.Empty<string>();
+            }
+
+            var separators = new[] { '\r', '\n', ',', ';' };
+            return txtSubjectAltNames.Text
+                .Split(separators, StringSplitOptions.RemoveEmptyEntries)
+                .Select(entry => entry.Trim())
+                .Where(entry => !string.IsNullOrWhiteSpace(entry))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static string ExtractHostFromEndpoint(string endpoint)
+        {
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                return string.Empty;
+            }
+
+            if (Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+            {
+                return uri.Host;
+            }
+
+            return endpoint;
         }
     }
 }
