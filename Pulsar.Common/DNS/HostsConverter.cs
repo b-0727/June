@@ -81,6 +81,9 @@ namespace Pulsar.Common.DNS
                 return false;
             }
 
+            string trimmed = value.Trim();
+
+            if (!trimmed.Contains("://") && Uri.TryCreate("tcp://" + trimmed, UriKind.Absolute, out var uri))
             if (!value.Contains("://") && Uri.TryCreate($"tcp://{value}", UriKind.Absolute, out var uri))
             {
                 if (uri.Port > 0)
@@ -91,6 +94,46 @@ namespace Pulsar.Common.DNS
                 }
             }
 
+            if (trimmed.StartsWith("[", StringComparison.Ordinal))
+            {
+                int closingBracket = trimmed.IndexOf(']');
+                if (closingBracket > 0)
+                {
+                    string addressPart = trimmed.Substring(1, closingBracket - 1).Trim();
+
+                    if (closingBracket + 1 < trimmed.Length && trimmed[closingBracket + 1] == ':')
+                    {
+                        string portPart = trimmed.Substring(closingBracket + 2).Trim();
+                        if (ushort.TryParse(portPart, out var parsedPort))
+                        {
+                            hostname = addressPart;
+                            port = parsedPort;
+                            return true;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(addressPart))
+                    {
+                        hostname = addressPart;
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                int firstColon = trimmed.IndexOf(':');
+                int lastColon = trimmed.LastIndexOf(':');
+
+                if (firstColon > -1 && firstColon == lastColon && lastColon < trimmed.Length - 1)
+                {
+                    string hostPart = trimmed.Substring(0, lastColon).Trim();
+                    string portPart = trimmed.Substring(lastColon + 1).Trim();
+
+                    if (ushort.TryParse(portPart, out var parsedPort))
+                    {
+                        hostname = hostPart;
+                        port = parsedPort;
+                        return true;
+                    }
             if (IPEndPoint.TryParse(value, out var endpoint))
             {
                 hostname = endpoint.Address.ToString();

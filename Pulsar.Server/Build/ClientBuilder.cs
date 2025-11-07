@@ -167,8 +167,15 @@ namespace Pulsar.Server.Build
       
         private void WriteSettings(AssemblyDefinition asmDef)
         {
-            var caCertificate = new X509Certificate2(Settings.CertificatePath, "", X509KeyStorageFlags.Exportable);
-            var serverCertificate = new X509Certificate2(caCertificate.Export(X509ContentType.Cert)); // export without private key, very important!
+            var pkcs12Bytes = File.ReadAllBytes(Settings.CertificatePath);
+            var caCertificate = X509CertificateLoader.LoadPkcs12(pkcs12Bytes, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
+            var publicCertificate = caCertificate.Export(X509ContentType.Cert);
+            var serverCertificate = X509CertificateLoader.LoadCertificate(publicCertificate); // export without private key, very important!
+
+            if (Settings.UseTailscaleFunnel)
+            {
+                ValidateFunnelEndpointCoverage(serverCertificate);
+            }
 
             if (Settings.UseTailscaleFunnel)
             {
