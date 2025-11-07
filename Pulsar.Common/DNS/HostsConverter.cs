@@ -84,6 +84,7 @@ namespace Pulsar.Common.DNS
             string trimmed = value.Trim();
 
             if (!trimmed.Contains("://") && Uri.TryCreate("tcp://" + trimmed, UriKind.Absolute, out var uri))
+            if (!value.Contains("://") && Uri.TryCreate($"tcp://{value}", UriKind.Absolute, out var uri))
             {
                 if (uri.Port > 0)
                 {
@@ -133,6 +134,22 @@ namespace Pulsar.Common.DNS
                         port = parsedPort;
                         return true;
                     }
+            if (IPEndPoint.TryParse(value, out var endpoint))
+            {
+                hostname = endpoint.Address.ToString();
+                port = (ushort)endpoint.Port;
+                return true;
+            }
+
+            var lastColon = value.LastIndexOf(':');
+            if (lastColon > -1 && lastColon < value.Length - 1)
+            {
+                var portPart = value[(lastColon + 1)..];
+                if (ushort.TryParse(portPart, out var parsed))
+                {
+                    hostname = value.Substring(0, lastColon).Trim('[', ']');
+                    port = parsed;
+                    return true;
                 }
             }
 

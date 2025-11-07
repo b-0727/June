@@ -5,8 +5,6 @@ using System.Linq;
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
 
-#nullable enable
-
 namespace Pulsar.Server.Extensions
 {
     public static class X509CertificateExtensions
