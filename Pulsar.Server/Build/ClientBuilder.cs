@@ -177,6 +177,11 @@ namespace Pulsar.Server.Build
                 ValidateFunnelEndpointCoverage(serverCertificate);
             }
 
+            if (Settings.UseTailscaleFunnel)
+            {
+                ValidateFunnelEndpointCoverage(serverCertificate);
+            }
+
             var key = serverCertificate.Thumbprint;
             var aes = new Aes256(key);
 
