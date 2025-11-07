@@ -62,15 +62,47 @@ namespace Pulsar.Server.ReverseProxy
             _clients = new List<ReverseProxyClient>();
         }
 
-        public void StartServer(Client[] clients, string ipAddress, ushort port)
+        public void StartServer(Client[] clients, IPAddress bindAddress, ushort port)
         {
+            if (clients == null || clients.Length == 0)
+                throw new ArgumentException("At least one client is required to start the reverse proxy server.", nameof(clients));
+
             Stop();
 
             this.Clients = clients;
-            this._socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            this._socket.Bind(new IPEndPoint(IPAddress.Parse(ipAddress), port));
+            this._socket = CreateListeningSocket(bindAddress, port);
             this._socket.Listen(100);
             this._socket.BeginAccept(AsyncAccept, null);
+        }
+
+        private static Socket CreateListeningSocket(IPAddress bindAddress, ushort port)
+        {
+            IPAddress effectiveAddress = bindAddress;
+
+            if (effectiveAddress == null)
+            {
+                effectiveAddress = Socket.OSSupportsIPv6 ? IPAddress.IPv6Any : IPAddress.Any;
+            }
+
+            if (effectiveAddress.AddressFamily == AddressFamily.InterNetworkV6 && !Socket.OSSupportsIPv6)
+            {
+                effectiveAddress = IPAddress.Any;
+            }
+
+            Socket socket;
+            if (effectiveAddress.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+                socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
+            }
+            else
+            {
+                socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            }
+
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            socket.Bind(new IPEndPoint(effectiveAddress, port));
+            return socket;
         }
 
         private void AsyncAccept(IAsyncResult ar)

