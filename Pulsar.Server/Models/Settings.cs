@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -160,6 +161,24 @@ namespace Pulsar.Server.Models
         {
             get { return LoadSettings().ShowToolTip; }
             set { LoadSettings().ShowToolTip = value; SaveSettings(); }
+        }
+
+        public static bool UseTailscaleFunnel
+        {
+            get { return LoadSettings().UseTailscaleFunnel; }
+            set { LoadSettings().UseTailscaleFunnel = value; SaveSettings(); }
+        }
+
+        public static string TailscaleFunnelEndpoint
+        {
+            get { return LoadSettings().TailscaleFunnelEndpoint; }
+            set { LoadSettings().TailscaleFunnelEndpoint = value; SaveSettings(); }
+        }
+
+        public static string[] TailscaleCertificateSans
+        {
+            get { return LoadSettings().TailscaleCertificateSans ?? Array.Empty<string>(); }
+            set { LoadSettings().TailscaleCertificateSans = value; SaveSettings(); }
         }
 
         public static string TelegramChatID

@@ -4,6 +4,7 @@ using Pulsar.Common.Cryptography;
 using Pulsar.Server.Models;
 using Pulsar.Server.Helper;
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -11,6 +12,7 @@ using Vestris.ResourceLib;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using Pulsar.Server.Extensions;
 
 namespace Pulsar.Server.Build
 {
@@ -168,6 +170,11 @@ namespace Pulsar.Server.Build
             var caCertificate = new X509Certificate2(Settings.CertificatePath, "", X509KeyStorageFlags.Exportable);
             var serverCertificate = new X509Certificate2(caCertificate.Export(X509ContentType.Cert)); // export without private key, very important!
 
+            if (Settings.UseTailscaleFunnel)
+            {
+                ValidateFunnelEndpointCoverage(serverCertificate);
+            }
+
             var key = serverCertificate.Thumbprint;
             var aes = new Aes256(key);
 
@@ -287,6 +294,57 @@ namespace Pulsar.Server.Build
                     }
                 }
             }
+        }
+
+        private void ValidateFunnelEndpointCoverage(X509Certificate2 certificate)
+        {
+            if (certificate == null)
+            {
+                throw new InvalidOperationException("A valid server certificate is required to build the client.");
+            }
+
+            var endpoint = Settings.TailscaleFunnelEndpoint;
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                return;
+            }
+
+            var host = ExtractFunnelHost(endpoint);
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                return;
+            }
+
+            var sans = certificate.GetSubjectAlternativeNames()
+                .Select(name => name?.Trim()?.ToLowerInvariant())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (!sans.Contains(host.ToLowerInvariant()))
+            {
+                throw new InvalidOperationException($"The active certificate does not contain '{host}' in its Subject Alternative Name list. Regenerate or import a certificate that includes this host before building.");
+            }
+        }
+
+        private static string ExtractFunnelHost(string endpoint)
+        {
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                return string.Empty;
+            }
+
+            if (Uri.TryCreate(endpoint, UriKind.Absolute, out var absoluteUri))
+            {
+                return absoluteUri.Host;
+            }
+
+            if (Uri.TryCreate($"https://{endpoint}", UriKind.Absolute, out var httpsUri))
+            {
+                return httpsUri.Host;
+            }
+
+            var colonIndex = endpoint.IndexOf(':');
+            return colonIndex > 0 ? endpoint.Substring(0, colonIndex) : endpoint;
         }
 
         /// <summary>

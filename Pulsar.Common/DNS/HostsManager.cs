@@ -245,9 +245,39 @@ namespace Pulsar.Common.DNS
 
         private static IPAddress ResolveHostname(Host host)
         {
-            if (string.IsNullOrEmpty(host.Hostname)) return null;
+            if (string.IsNullOrEmpty(host?.Hostname) && string.IsNullOrEmpty(host?.RawHost)) return null;
 
-            if (IPAddress.TryParse(host.Hostname, out IPAddress ip))
+            string hostname = host?.Hostname;
+
+            if (!string.IsNullOrEmpty(host?.RawHost) && host.RawHost.Contains("://"))
+            {
+                try
+                {
+                    if (Uri.TryCreate(host.RawHost, UriKind.Absolute, out var uri))
+                    {
+                        hostname = uri.Host;
+                        if (host.Port == 0)
+                        {
+                            host.Port = (ushort)(uri.IsDefaultPort
+                                ? (uri.Scheme == Uri.UriSchemeHttps ? 443 : 80)
+                                : uri.Port);
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    hostname = host.Hostname;
+                }
+            }
+
+            hostname = hostname?.Trim('[', ']');
+
+            if (string.IsNullOrEmpty(hostname))
+            {
+                return null;
+            }
+
+            if (IPAddress.TryParse(hostname, out IPAddress ip))
             {
                 if (ip.AddressFamily == AddressFamily.InterNetworkV6 && !Socket.OSSupportsIPv6)
                     return null;
@@ -257,18 +287,34 @@ namespace Pulsar.Common.DNS
 
             try
             {
-                var ipAddresses = Dns.GetHostEntry(host.Hostname).AddressList;
+                var ipAddresses = Dns.GetHostAddresses(hostname);
+
+                IPAddress selectedV4 = null;
+                IPAddress selectedV6 = null;
+
                 foreach (IPAddress ipAddress in ipAddresses)
                 {
-                    switch (ipAddress.AddressFamily)
+                    if (ipAddress.AddressFamily == AddressFamily.InterNetwork && selectedV4 == null)
                     {
-                        case AddressFamily.InterNetwork:
-                            return ipAddress;
-                        case AddressFamily.InterNetworkV6:
-                            if (ipAddresses.Length == 1)
-                                return ipAddress;
-                            break;
+                        selectedV4 = ipAddress;
                     }
+                    else if (ipAddress.AddressFamily == AddressFamily.InterNetworkV6 && selectedV6 == null)
+                    {
+                        if (Socket.OSSupportsIPv6)
+                        {
+                            selectedV6 = ipAddress;
+                        }
+                    }
+                }
+
+                if (selectedV4 != null)
+                {
+                    return selectedV4;
+                }
+
+                if (selectedV6 != null)
+                {
+                    return selectedV6;
                 }
             }
             catch (Exception)

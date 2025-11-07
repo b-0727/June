@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using System;
 
 namespace Pulsar.Server.Models
 {
@@ -58,5 +59,14 @@ namespace Pulsar.Server.Models
 
         [JsonProperty("showCountryGroups")]
         public bool ShowCountryGroups { get; set; } = true;
+
+        [JsonProperty("useTailscaleFunnel")]
+        public bool UseTailscaleFunnel { get; set; } = false;
+
+        [JsonProperty("tailscaleFunnelEndpoint")]
+        public string TailscaleFunnelEndpoint { get; set; } = string.Empty;
+
+        [JsonProperty("tailscaleCertificateSans")]
+        public string[] TailscaleCertificateSans { get; set; } = Array.Empty<string>();
     }
 }

