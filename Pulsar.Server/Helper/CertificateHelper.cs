@@ -1,3 +1,4 @@
+using Org.BouncyCastle.Asn1;
 using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Generators;
@@ -11,18 +12,21 @@ using Org.BouncyCastle.Security;
 using Org.BouncyCastle.X509;
 using Org.BouncyCastle.X509.Extension;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Linq;
+using System.Net;
 
 namespace Pulsar.Server.Helper
 {
     public static class CertificateHelper
     {
-        public static X509Certificate2 CreateCertificateAuthority(string caName, int keyStrength = 4096)
+        public static X509Certificate2 CreateCertificateAuthority(string caName, int keyStrength = 4096, IEnumerable<string> subjectAlternativeNames = null)
         {
             var random = new SecureRandom(new CryptoApiRandomGenerator());
-            
+
             var keyStrengths = new[] { 2048, 3072, 4096 };
             var randomKeyStrength = keyStrengths[random.Next(keyStrengths.Length)];
             
@@ -56,6 +60,7 @@ namespace Pulsar.Server.Helper
             certificateGenerator.AddExtension(X509Extensions.BasicConstraints, true, new BasicConstraints(true));
             certificateGenerator.AddExtension(X509Extensions.KeyUsage, true, new KeyUsage(KeyUsage.KeyCertSign | KeyUsage.CrlSign));
             certificateGenerator.AddExtension(X509Extensions.ExtendedKeyUsage, true, new ExtendedKeyUsage(KeyPurposeID.IdKPServerAuth));
+            AddSubjectAlternativeNames(certificateGenerator, subjectAlternativeNames);
 
             var signatureAlgorithms = new[] { "SHA256WITHRSA", "SHA384WITHRSA", "SHA512WITHRSA" };
             var randomSignatureAlgorithm = signatureAlgorithms[random.Next(signatureAlgorithms.Length)];
@@ -84,7 +89,7 @@ namespace Pulsar.Server.Helper
         /// <summary>
         /// Alternative method using PEM format for AOT compatibility
         /// </summary>
-        public static X509Certificate2 CreateCertificateAuthorityFromPem(string caName, int keyStrength = 4096)
+        public static X509Certificate2 CreateCertificateAuthorityFromPem(string caName, int keyStrength = 4096, IEnumerable<string> subjectAlternativeNames = null)
         {
             var random = new SecureRandom(new CryptoApiRandomGenerator());
             
@@ -121,6 +126,7 @@ namespace Pulsar.Server.Helper
             certificateGenerator.AddExtension(X509Extensions.BasicConstraints, true, new BasicConstraints(true));
             certificateGenerator.AddExtension(X509Extensions.KeyUsage, true, new KeyUsage(KeyUsage.KeyCertSign | KeyUsage.CrlSign));
             certificateGenerator.AddExtension(X509Extensions.ExtendedKeyUsage, true, new ExtendedKeyUsage(KeyPurposeID.IdKPServerAuth));
+            AddSubjectAlternativeNames(certificateGenerator, subjectAlternativeNames);
 
             var signatureAlgorithms = new[] { "SHA256WITHRSA", "SHA384WITHRSA", "SHA512WITHRSA" };
             var randomSignatureAlgorithm = signatureAlgorithms[random.Next(signatureAlgorithms.Length)];
@@ -173,10 +179,38 @@ namespace Pulsar.Server.Helper
         private static string GenerateRandomCountryCode(SecureRandom random)
         {
             var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            return new string(new char[] { 
-                chars[random.Next(chars.Length)], 
-                chars[random.Next(chars.Length)] 
+            return new string(new char[] {
+                chars[random.Next(chars.Length)],
+                chars[random.Next(chars.Length)]
             });
+        }
+
+        private static void AddSubjectAlternativeNames(X509V3CertificateGenerator certificateGenerator, IEnumerable<string> subjectAlternativeNames)
+        {
+            if (certificateGenerator == null || subjectAlternativeNames == null)
+            {
+                return;
+            }
+
+            var generalNames = new List<GeneralName>();
+
+            foreach (var san in subjectAlternativeNames.Where(s => !string.IsNullOrWhiteSpace(s)))
+            {
+                var trimmed = san.Trim();
+                if (IPAddress.TryParse(trimmed, out var ip))
+                {
+                    generalNames.Add(new GeneralName(GeneralName.IPAddress, ip.ToString()));
+                }
+                else
+                {
+                    generalNames.Add(new GeneralName(GeneralName.DnsName, trimmed));
+                }
+            }
+
+            if (generalNames.Count > 0)
+            {
+                certificateGenerator.AddExtension(X509Extensions.SubjectAlternativeName, false, new GeneralNames(generalNames.ToArray()));
+            }
         }
     }
 }
