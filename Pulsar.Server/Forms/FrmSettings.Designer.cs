@@ -54,6 +54,10 @@ namespace Pulsar.Server.Forms
             lblMultiPorts = new System.Windows.Forms.Label();
             txtMultiPorts = new System.Windows.Forms.TextBox();
             chkShowCountryGroups = new System.Windows.Forms.CheckBox();
+            chkUseTailscaleFunnel = new System.Windows.Forms.CheckBox();
+            txtFunnelEndpoint = new System.Windows.Forms.TextBox();
+            btnRefreshFunnel = new System.Windows.Forms.Button();
+            lblFunnelStatus = new System.Windows.Forms.Label();
             ((System.ComponentModel.ISupportInitialize)ncPort).BeginInit();
             groupBox1.SuspendLayout();
             SuspendLayout();
@@ -103,12 +107,24 @@ namespace Pulsar.Server.Forms
             chkAutoListen.TabIndex = 6;
             chkAutoListen.Text = "Listen for new connections on startup";
             chkAutoListen.UseVisualStyleBackColor = true;
+            //
+            // chkUseTailscaleFunnel
+            //
+            chkUseTailscaleFunnel.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+            chkUseTailscaleFunnel.AutoSize = true;
+            chkUseTailscaleFunnel.Location = new System.Drawing.Point(12, 168);
+            chkUseTailscaleFunnel.Name = "chkUseTailscaleFunnel";
+            chkUseTailscaleFunnel.Size = new System.Drawing.Size(225, 17);
+            chkUseTailscaleFunnel.TabIndex = 22;
+            chkUseTailscaleFunnel.Text = "Use active Tailscale funnel endpoint";
+            chkUseTailscaleFunnel.UseVisualStyleBackColor = true;
+            chkUseTailscaleFunnel.CheckedChanged += chkUseTailscaleFunnel_CheckedChanged;
             // 
             // chkPopup
             // 
             chkPopup.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
             chkPopup.AutoSize = true;
-            chkPopup.Location = new System.Drawing.Point(12, 191);
+            chkPopup.Location = new System.Drawing.Point(12, 237);
             chkPopup.Name = "chkPopup";
             chkPopup.Size = new System.Drawing.Size(259, 17);
             chkPopup.TabIndex = 7;
@@ -141,7 +157,7 @@ namespace Pulsar.Server.Forms
             // 
             chkUseUpnp.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
             chkUseUpnp.AutoSize = true;
-            chkUseUpnp.Location = new System.Drawing.Point(12, 214);
+            chkUseUpnp.Location = new System.Drawing.Point(12, 260);
             chkUseUpnp.Name = "chkUseUpnp";
             chkUseUpnp.Size = new System.Drawing.Size(250, 17);
             chkUseUpnp.TabIndex = 8;
@@ -152,15 +168,15 @@ namespace Pulsar.Server.Forms
             // 
             chkShowTooltip.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
             chkShowTooltip.AutoSize = true;
-            chkShowTooltip.Location = new System.Drawing.Point(12, 237);
+            chkShowTooltip.Location = new System.Drawing.Point(12, 283);
             chkShowTooltip.Name = "chkShowTooltip";
             chkShowTooltip.Size = new System.Drawing.Size(268, 17);
             chkShowTooltip.TabIndex = 9;
             chkShowTooltip.Text = "Show tooltip on client with system information";
             chkShowTooltip.UseVisualStyleBackColor = true;
-            // 
+            //
             // chkIPv6Support
-            // 
+            //
             chkIPv6Support.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
             chkIPv6Support.AutoSize = true;
             chkIPv6Support.Location = new System.Drawing.Point(12, 145);
@@ -187,15 +203,45 @@ namespace Pulsar.Server.Forms
             // 
             chkEventLog.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
             chkEventLog.AutoSize = true;
-            chkEventLog.Location = new System.Drawing.Point(12, 260);
+            chkEventLog.Location = new System.Drawing.Point(12, 306);
             chkEventLog.Name = "chkEventLog";
             chkEventLog.Size = new System.Drawing.Size(186, 17);
             chkEventLog.TabIndex = 21;
             chkEventLog.Text = "Show event log and debug log";
             chkEventLog.UseVisualStyleBackColor = true;
-            // 
+            //
+            // txtFunnelEndpoint
+            //
+            txtFunnelEndpoint.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+            txtFunnelEndpoint.Location = new System.Drawing.Point(12, 191);
+            txtFunnelEndpoint.Name = "txtFunnelEndpoint";
+            txtFunnelEndpoint.ReadOnly = true;
+            txtFunnelEndpoint.Size = new System.Drawing.Size(297, 23);
+            txtFunnelEndpoint.TabIndex = 23;
+            //
+            // btnRefreshFunnel
+            //
+            btnRefreshFunnel.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
+            btnRefreshFunnel.Location = new System.Drawing.Point(315, 190);
+            btnRefreshFunnel.Name = "btnRefreshFunnel";
+            btnRefreshFunnel.Size = new System.Drawing.Size(33, 23);
+            btnRefreshFunnel.TabIndex = 24;
+            btnRefreshFunnel.Text = "↻";
+            btnRefreshFunnel.UseVisualStyleBackColor = true;
+            btnRefreshFunnel.Click += btnRefreshFunnel_Click;
+            //
+            // lblFunnelStatus
+            //
+            lblFunnelStatus.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+            lblFunnelStatus.AutoSize = true;
+            lblFunnelStatus.Location = new System.Drawing.Point(12, 217);
+            lblFunnelStatus.Name = "lblFunnelStatus";
+            lblFunnelStatus.Size = new System.Drawing.Size(247, 13);
+            lblFunnelStatus.TabIndex = 25;
+            lblFunnelStatus.Text = "Tailscale funnel endpoint status will appear here.";
+            //
             // chkDiscordRPC
-            // 
+            //
             chkDiscordRPC.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
             chkDiscordRPC.AutoSize = true;
             chkDiscordRPC.Checked = true;
@@ -333,7 +379,7 @@ namespace Pulsar.Server.Forms
             chkShowCountryGroups.AutoSize = true;
             chkShowCountryGroups.Checked = true;
             chkShowCountryGroups.CheckState = System.Windows.Forms.CheckState.Checked;
-            chkShowCountryGroups.Location = new System.Drawing.Point(12, 283);
+            chkShowCountryGroups.Location = new System.Drawing.Point(12, 329);
             chkShowCountryGroups.Name = "chkShowCountryGroups";
             chkShowCountryGroups.Size = new System.Drawing.Size(152, 17);
             chkShowCountryGroups.TabIndex = 10;
@@ -347,6 +393,10 @@ namespace Pulsar.Server.Forms
             ClientSize = new System.Drawing.Size(360, 593);
             Controls.Add(txtMultiPorts);
             Controls.Add(lblMultiPorts);
+            Controls.Add(lblFunnelStatus);
+            Controls.Add(btnRefreshFunnel);
+            Controls.Add(txtFunnelEndpoint);
+            Controls.Add(chkUseTailscaleFunnel);
             Controls.Add(chkShowCountryGroups);
             Controls.Add(chkHideFromScreenCapture);
             Controls.Add(groupBox1);
@@ -376,6 +426,7 @@ namespace Pulsar.Server.Forms
             StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             Text = "Settings";
             Load += FrmSettings_Load;
+            FormClosed += FrmSettings_FormClosed;
             ((System.ComponentModel.ISupportInitialize)ncPort).EndInit();
             groupBox1.ResumeLayout(false);
             ResumeLayout(false);
@@ -410,5 +461,9 @@ namespace Pulsar.Server.Forms
         private System.Windows.Forms.Label lblMultiPorts;
         private System.Windows.Forms.TextBox txtMultiPorts;
         private System.Windows.Forms.CheckBox chkShowCountryGroups;
+        private System.Windows.Forms.CheckBox chkUseTailscaleFunnel;
+        private System.Windows.Forms.TextBox txtFunnelEndpoint;
+        private System.Windows.Forms.Button btnRefreshFunnel;
+        private System.Windows.Forms.Label lblFunnelStatus;
     }
 }

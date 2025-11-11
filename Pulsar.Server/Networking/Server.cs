@@ -3,6 +3,7 @@ using Pulsar.Common.Messages;
 using Pulsar.Common.Messages.Other;
 using Pulsar.Common.Networking;
 using Pulsar.Server.Forms;
+using Pulsar.Server.Models;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,6 +11,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace Pulsar.Server.Networking
@@ -193,6 +195,8 @@ namespace Pulsar.Server.Networking
         /// Accept event args, one per listening socket.
         /// </summary>
         private readonly Dictionary<Socket, SocketAsyncEventArgs> _acceptArgs = new Dictionary<Socket, SocketAsyncEventArgs>();
+        private readonly HashSet<ushort> _configuredFirewallPorts = new HashSet<ushort>();
+        private readonly object _firewallLock = new object();
 
         /// <summary>
         /// The server certificate.
@@ -281,6 +285,32 @@ namespace Pulsar.Server.Networking
             }
         }
 
+        private static IPAddress DetermineBindingAddress(bool funnelMode, bool ipv6)
+        {
+            if (funnelMode)
+            {
+                var preferred = TailscaleNetworkHelper.GetPreferredAddress(ipv6);
+                if (preferred != null)
+                {
+                    return preferred;
+                }
+
+                if (Socket.OSSupportsIPv6 && ipv6)
+                {
+                    return IPAddress.IPv6Loopback;
+                }
+
+                return IPAddress.Loopback;
+            }
+
+            if (Socket.OSSupportsIPv6 && ipv6)
+            {
+                return IPAddress.IPv6Any;
+            }
+
+            return IPAddress.Any;
+        }
+
         /// <summary>
         /// Begins listening for clients on a single port.
         /// </summary>
@@ -298,6 +328,8 @@ namespace Pulsar.Server.Networking
         public void ListenMany(IEnumerable<ushort> ports, bool ipv6, bool enableUPnP)
         {
             var startNow = !Listening;
+            var funnelMode = Settings.UseTailscaleFunnel;
+            var enablePortMapping = enableUPnP && !funnelMode;
 
             foreach (var port in ports.Distinct())
             {
@@ -306,18 +338,26 @@ namespace Pulsar.Server.Networking
                     if (_handles.Any(h => (h.LocalEndPoint as IPEndPoint)?.Port == port))
                         continue;
             }
+                var bindingAddress = DetermineBindingAddress(funnelMode, ipv6);
+
                 Socket handle;
-            if (Socket.OSSupportsIPv6 && ipv6)
-            {
+                IPAddress effectiveAddress = bindingAddress;
+                if (bindingAddress.AddressFamily == AddressFamily.InterNetworkV6 && Socket.OSSupportsIPv6)
+                {
                     handle = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
                     handle.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, 0);
-                    handle.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
-            }
-            else
-            {
+                    handle.Bind(new IPEndPoint(bindingAddress, port));
+                }
+                else
+                {
+                    if (bindingAddress.AddressFamily == AddressFamily.InterNetworkV6 && !Socket.OSSupportsIPv6)
+                    {
+                        effectiveAddress = IPAddress.Loopback;
+                    }
+
                     handle = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    handle.Bind(new IPEndPoint(IPAddress.Any, port));
-            }
+                    handle.Bind(new IPEndPoint(effectiveAddress, port));
+                }
 
                 handle.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 handle.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.NoDelay, true);
@@ -327,11 +367,15 @@ namespace Pulsar.Server.Networking
                     _handles.Add(handle);
                 }
 
-                if (enableUPnP)
+                if (enablePortMapping)
                 {
                     var upnp = new UPnPService();
                     _upnpByPort[port] = upnp;
                     upnp.CreatePortMapAsync(port);
+                }
+                else
+                {
+                    EnsureFirewallRule(port, effectiveAddress, funnelMode);
                 }
 
                 var item = new SocketAsyncEventArgs();
@@ -377,6 +421,100 @@ namespace Pulsar.Server.Networking
             if (startNow && _handles.Count > 0)
             {
                 OnServerState(true);
+            }
+        }
+
+        private void EnsureFirewallRule(ushort port, IPAddress bindingAddress, bool funnelMode)
+        {
+            if (!funnelMode)
+            {
+                return;
+            }
+
+            if (Environment.OSVersion.Platform != PlatformID.Win32NT)
+            {
+                return;
+            }
+
+            lock (_firewallLock)
+            {
+                if (!_configuredFirewallPorts.Add(port))
+                {
+                    return;
+                }
+            }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var ruleName = $"Pulsar Tailnet Port {port}";
+                    RunNetshCommand($"advfirewall firewall delete rule name=\"{ruleName}\"");
+
+                    var arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol=TCP localport={port} profile=any";
+
+                    if (bindingAddress != null &&
+                        !IPAddress.Any.Equals(bindingAddress) &&
+                        !IPAddress.IPv6Any.Equals(bindingAddress))
+                    {
+                        arguments += $" localip=\"{bindingAddress}\"";
+                    }
+
+                    RunNetshCommand(arguments);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Failed to configure firewall rule for port {port}: {ex.Message}");
+                }
+            });
+        }
+
+        private static void RunNetshCommand(string arguments)
+        {
+            try
+            {
+                using (var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "netsh",
+                        Arguments = arguments,
+                        CreateNoWindow = true,
+                        UseShellExecute = false,
+                        RedirectStandardError = true,
+                        RedirectStandardOutput = true
+                    }
+                })
+                {
+                    if (!process.Start())
+                    {
+                        return;
+                    }
+
+                    if (!process.WaitForExit(5000))
+                    {
+                        try
+                        {
+                            process.Kill();
+                        }
+                        catch
+                        {
+                        }
+                    }
+
+                    if (process.ExitCode != 0)
+                    {
+                        var error = process.StandardError.ReadToEnd();
+                        if (!string.IsNullOrWhiteSpace(error))
+                        {
+                            Debug.WriteLine($"netsh {arguments} failed: {error}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to execute netsh {arguments}: {ex.Message}");
             }
         }
 

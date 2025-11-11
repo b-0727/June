@@ -2,10 +2,13 @@
 using Pulsar.Common.Messages.Administration.ReverseProxy;
 using Pulsar.Common.Messages.Other;
 using Pulsar.Common.Networking;
+using Pulsar.Server.Models;
 using Pulsar.Server.Networking;
 using Pulsar.Server.ReverseProxy;
 using System;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 
 namespace Pulsar.Server.Messages
 {
@@ -67,7 +70,8 @@ namespace Pulsar.Server.Messages
         {
             _socksServer.OnConnectionEstablished += socksServer_onConnectionEstablished;
             _socksServer.OnUpdateConnection += socksServer_onUpdateConnection;
-            _socksServer.StartServer(_clients, "0.0.0.0", port);
+            var bindAddress = DetermineBindAddress();
+            _socksServer.StartServer(_clients, bindAddress, port);
         }
 
         /// <summary>
@@ -78,6 +82,33 @@ namespace Pulsar.Server.Messages
             _socksServer.Stop();
             _socksServer.OnConnectionEstablished -= socksServer_onConnectionEstablished;
             _socksServer.OnUpdateConnection -= socksServer_onUpdateConnection;
+        }
+
+        private static IPAddress DetermineBindAddress()
+        {
+            if (Settings.UseTailscaleFunnel)
+            {
+                var preferIpv6 = Settings.IPv6Support && Socket.OSSupportsIPv6;
+                var tailscaleAddress = TailscaleNetworkHelper.GetPreferredAddress(preferIpv6);
+                if (tailscaleAddress != null)
+                {
+                    return tailscaleAddress;
+                }
+
+                if (preferIpv6)
+                {
+                    return IPAddress.IPv6Loopback;
+                }
+
+                return IPAddress.Loopback;
+            }
+
+            if (Settings.IPv6Support && Socket.OSSupportsIPv6)
+            {
+                return IPAddress.IPv6Any;
+            }
+
+            return IPAddress.Any;
         }
 
         private void Execute(ISender client, ReverseProxyConnectResponse message)
