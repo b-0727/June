@@ -90,6 +90,7 @@ namespace Pulsar.Server.Forms
         private bool _syncingSelection;
         private IReadOnlyList<OfflineClientRecord> _cachedOfflineClients = Array.Empty<OfflineClientRecord>();
         private PreviewHandler _previewImageHandler;
+        private readonly TailscaleFunnelService _tailscaleFunnelService;
         private static readonly string PulsarStuffDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PulsarStuff");
         private readonly string AutoTasksFilePath = Path.Combine(PulsarStuffDir, "autotasks.json");
         private readonly string NotificationStateFilePath = Path.Combine(PulsarStuffDir, "notifications.json");
@@ -145,9 +146,14 @@ namespace Pulsar.Server.Forms
 
             InitializeSearch();
             InitializeNotificationTracking();
-            
+
             // Initialize Plugin System
             InitializePlugins();
+
+            _tailscaleFunnelService = TailscaleFunnelService.Instance;
+            _tailscaleFunnelService.FunnelEndpointChanged += TailscaleFunnelServiceOnFunnelEndpointChanged;
+            _tailscaleFunnelService.Start();
+            UpdateListeningStatusLabel(ListenServer?.Listening ?? false, ListenServer?.GetListeningPorts() ?? Array.Empty<ushort>());
         }
 
         private void OnAddressReceived(object sender, Client client, string addressType)
@@ -230,7 +236,7 @@ namespace Pulsar.Server.Forms
         {
             X509Certificate2 serverCertificate;
 #if DEBUG
-            serverCertificate = new DummyCertificate();
+            serverCertificate = DummyCertificate.Create();
 #else
             if (!File.Exists(Settings.CertificatePath))
             {
@@ -240,7 +246,8 @@ namespace Pulsar.Server.Forms
                     { }
                 }
             }
-            serverCertificate = new X509Certificate2(Settings.CertificatePath);
+            var certificateBytes = File.ReadAllBytes(Settings.CertificatePath);
+            serverCertificate = X509CertificateLoader.LoadPkcs12(certificateBytes, password: null, keyStorageFlags: X509KeyStorageFlags.Exportable);
 #endif
             ListenServer = new PulsarServer(serverCertificate);
             ListenServer.ServerState += ServerState;
@@ -451,6 +458,11 @@ namespace Pulsar.Server.Forms
                     notifyIcon.Visible = false;
                     notifyIcon.Dispose();
                 }
+                if (_tailscaleFunnelService != null)
+                {
+                    _tailscaleFunnelService.FunnelEndpointChanged -= TailscaleFunnelServiceOnFunnelEndpointChanged;
+                    _tailscaleFunnelService.Stop();
+                }
                 try
                 {
                     _statusUpdateTimer?.Dispose();
@@ -649,34 +661,73 @@ namespace Pulsar.Server.Forms
                         wpfClientsHost?.ClearClients();
                     }
 
-                    string statusText;
                     var ports = (ListenServer?.GetListeningPorts() ?? Array.Empty<ushort>()).Distinct().ToList();
-
-                    if (listening)
-                    {
-                        if (ports.Count <= 3)
-                        {
-                            statusText = $"Listening on ports {string.Join(", ", ports)}.";
-                        }
-                        else
-                        {
-                            var firstThree = ports.Take(3);
-                            var remaining = ports.Count - 3;
-                            statusText = $"Listening on ports {string.Join(", ", firstThree)} and {remaining} more ports.";
-                        }
-                    }
-                    else
-                    {
-                        statusText = "Not listening.";
-                    }
-
-                    listenToolStripStatusLabel.Text = statusText;
+                    UpdateListeningStatusLabel(listening, ports);
                 });
                 UpdateWindowTitle();
             }
             catch (InvalidOperationException)
             {
             }
+        }
+
+        private void UpdateListeningStatusLabel(bool listening, IReadOnlyCollection<ushort> ports)
+        {
+            if (listenToolStripStatusLabel == null || listenToolStripStatusLabel.IsDisposed)
+            {
+                return;
+            }
+
+            string statusText;
+
+            if (listening)
+            {
+                if (ports == null || ports.Count == 0)
+                {
+                    statusText = "Listening.";
+                }
+                else if (ports.Count <= 3)
+                {
+                    statusText = $"Listening on ports {string.Join(", ", ports)}.";
+                }
+                else
+                {
+                    var firstThree = ports.Take(3);
+                    var remaining = ports.Count - 3;
+                    statusText = $"Listening on ports {string.Join(", ", firstThree)} and {remaining} more ports.";
+                }
+            }
+            else
+            {
+                statusText = "Not listening.";
+            }
+
+            if (Settings.UseTailscaleFunnel)
+            {
+                var endpoint = string.IsNullOrWhiteSpace(Settings.TailscaleFunnelEndpoint)
+                    ? "discovering..."
+                    : Settings.TailscaleFunnelEndpoint;
+                statusText = $"{statusText} | Tailscale funnel: {endpoint}";
+            }
+
+            listenToolStripStatusLabel.Text = statusText;
+        }
+
+        private void TailscaleFunnelServiceOnFunnelEndpointChanged(object sender, TailscaleFunnelInfo info)
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => TailscaleFunnelServiceOnFunnelEndpointChanged(sender, info)));
+                return;
+            }
+
+            var ports = ListenServer?.GetListeningPorts() ?? Array.Empty<ushort>();
+            UpdateListeningStatusLabel(ListenServer?.Listening ?? false, ports);
         }
 
         private bool IsClientBlocked(string clientAddress)

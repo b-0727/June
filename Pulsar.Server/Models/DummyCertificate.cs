@@ -5,7 +5,7 @@ namespace Pulsar.Server.Models
     /// <summary>
     /// Provides a dummy certificate for debugging. Do not use in production.
     /// </summary>
-    public sealed class DummyCertificate : X509Certificate2
+    public static class DummyCertificate
     {
         private static readonly byte[] CertificateBytes =
         {
@@ -191,10 +191,12 @@ namespace Pulsar.Server.Models
         };
 
         /// <summary>
-        /// Initializes a new instance of <see cref="DummyCertificate"/> with a static dummy certificate.
+        /// Creates a new <see cref="X509Certificate2"/> instance backed by the embedded dummy certificate.
         /// </summary>
-        public DummyCertificate() : base(CertificateBytes)
+        /// <returns>An <see cref="X509Certificate2"/> instance that callers must dispose.</returns>
+        public static X509Certificate2 Create()
         {
+            return X509CertificateLoader.LoadCertificate(CertificateBytes);
         }
     }
 }

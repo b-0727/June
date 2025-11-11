@@ -37,6 +37,9 @@
             this.btnSave = new System.Windows.Forms.Button();
             this.label1 = new System.Windows.Forms.Label();
             this.btnExit = new System.Windows.Forms.Button();
+            this.lblSan = new System.Windows.Forms.Label();
+            this.txtSubjectAltNames = new System.Windows.Forms.TextBox();
+            this.lblSanHint = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
             // lblInfo
@@ -71,7 +74,7 @@
             // 
             // txtDetails
             // 
-            this.txtDetails.Location = new System.Drawing.Point(12, 69);
+            this.txtDetails.Location = new System.Drawing.Point(12, 162);
             this.txtDetails.Multiline = true;
             this.txtDetails.Name = "txtDetails";
             this.txtDetails.ReadOnly = true;
@@ -92,39 +95,70 @@
             // btnSave
             // 
             this.btnSave.Enabled = false;
-            this.btnSave.Location = new System.Drawing.Point(373, 305);
+            this.btnSave.Location = new System.Drawing.Point(373, 398);
             this.btnSave.Name = "btnSave";
             this.btnSave.Size = new System.Drawing.Size(75, 23);
             this.btnSave.TabIndex = 6;
             this.btnSave.Text = "Save";
             this.btnSave.UseVisualStyleBackColor = true;
             this.btnSave.Click += new System.EventHandler(this.btnSave_Click);
-            // 
+            //
             // label1
-            // 
+            //
             this.label1.AutoSize = true;
             this.label1.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.label1.Location = new System.Drawing.Point(12, 310);
+            this.label1.Location = new System.Drawing.Point(12, 403);
             this.label1.Name = "label1";
             this.label1.Size = new System.Drawing.Size(355, 15);
             this.label1.TabIndex = 5;
             this.label1.Text = "KEEP THIS FILE SAFE! LOSS RESULTS IN LOOSING ALL CLIENTS!";
-            // 
+            //
             // btnExit
-            // 
-            this.btnExit.Location = new System.Drawing.Point(454, 306);
+            //
+            this.btnExit.Location = new System.Drawing.Point(454, 399);
             this.btnExit.Name = "btnExit";
             this.btnExit.Size = new System.Drawing.Size(75, 23);
             this.btnExit.TabIndex = 7;
             this.btnExit.Text = "Exit";
             this.btnExit.UseVisualStyleBackColor = true;
             this.btnExit.Click += new System.EventHandler(this.btnExit_Click);
-            // 
+            //
+            // lblSan
+            //
+            this.lblSan.AutoSize = true;
+            this.lblSan.Location = new System.Drawing.Point(12, 69);
+            this.lblSan.Name = "lblSan";
+            this.lblSan.Size = new System.Drawing.Size(246, 13);
+            this.lblSan.TabIndex = 8;
+            this.lblSan.Text = "Subject Alternative Names (one per line or CSV)";
+            //
+            // txtSubjectAltNames
+            //
+            this.txtSubjectAltNames.Location = new System.Drawing.Point(12, 85);
+            this.txtSubjectAltNames.Multiline = true;
+            this.txtSubjectAltNames.Name = "txtSubjectAltNames";
+            this.txtSubjectAltNames.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.txtSubjectAltNames.Size = new System.Drawing.Size(517, 71);
+            this.txtSubjectAltNames.TabIndex = 3;
+            //
+            // lblSanHint
+            //
+            this.lblSanHint.AutoSize = true;
+            this.lblSanHint.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.lblSanHint.Location = new System.Drawing.Point(264, 69);
+            this.lblSanHint.Name = "lblSanHint";
+            this.lblSanHint.Size = new System.Drawing.Size(265, 13);
+            this.lblSanHint.TabIndex = 9;
+            this.lblSanHint.Text = "Include funnel hostname and tailnet IPs for clients.";
+            //
             // FrmCertificate
-            // 
+            //
             this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
-            this.ClientSize = new System.Drawing.Size(541, 341);
+            this.ClientSize = new System.Drawing.Size(541, 433);
+            this.Controls.Add(this.lblSanHint);
+            this.Controls.Add(this.txtSubjectAltNames);
+            this.Controls.Add(this.lblSan);
             this.Controls.Add(this.btnExit);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.btnSave);
@@ -155,5 +189,8 @@
         private System.Windows.Forms.Button btnSave;
         private System.Windows.Forms.Label label1;
         private System.Windows.Forms.Button btnExit;
+        private System.Windows.Forms.Label lblSan;
+        private System.Windows.Forms.TextBox txtSubjectAltNames;
+        private System.Windows.Forms.Label lblSanHint;
     }
 }
