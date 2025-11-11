@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Text;
 
@@ -14,48 +15,44 @@ namespace Pulsar.Common.DNS
 
             if (string.IsNullOrEmpty(rawHosts)) return hostsList;
 
-            var hosts = rawHosts.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+            var hosts = rawHosts.Split(';');
 
             foreach (var hostEntry in hosts)
             {
-                string trimmedEntry = hostEntry.Trim();
-                if (trimmedEntry.Length == 0)
-                {
-                    continue;
-                }
+                if (string.IsNullOrWhiteSpace(hostEntry)) continue;
 
-                if (Uri.TryCreate(trimmedEntry, UriKind.Absolute, out var httpUri) &&
-                    (httpUri.Scheme == Uri.UriSchemeHttp || httpUri.Scheme == Uri.UriSchemeHttps))
+                if (Uri.TryCreate(hostEntry, UriKind.Absolute, out Uri uri) &&
+                    (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
                 {
-                    ushort port = (ushort)(httpUri.IsDefaultPort
-                        ? (httpUri.Scheme == Uri.UriSchemeHttps ? 443 : 80)
-                        : httpUri.Port);
+                    ushort port = (ushort)(uri.IsDefaultPort
+                        ? (uri.Scheme == Uri.UriSchemeHttps ? 443 : 80)
+                        : uri.Port);
 
                     hostsList.Add(new Host
                     {
-                        Hostname = httpUri.Host,
+                        Hostname = uri.Host,
                         Port = port,
-                        RawHost = trimmedEntry
+                        RawHost = hostEntry
                     });
                     continue;
                 }
 
-                if (TryParseHostAndPort(trimmedEntry, out string hostname, out ushort parsedPort))
+                if (TryParseHostAndPort(hostEntry, out string hostname, out ushort parsedPort))
                 {
                     hostsList.Add(new Host
                     {
                         Hostname = hostname,
                         Port = parsedPort,
-                        RawHost = trimmedEntry
+                        RawHost = hostEntry
                     });
                     continue;
                 }
 
                 hostsList.Add(new Host
                 {
-                    Hostname = trimmedEntry,
+                    Hostname = hostEntry,
                     Port = 0,
-                    RawHost = trimmedEntry
+                    RawHost = hostEntry
                 });
             }
 
@@ -74,8 +71,6 @@ namespace Pulsar.Common.DNS
             return rawHosts.ToString();
         }
 
-        // NOTE: Avoids newer BCL helpers such as IPEndPoint.TryParse or range syntax so the
-        // client libraries continue to build on the legacy .NET Framework target (net472).
         private static bool TryParseHostAndPort(string value, out string hostname, out ushort port)
         {
             hostname = null;
@@ -88,14 +83,13 @@ namespace Pulsar.Common.DNS
 
             string trimmed = value.Trim();
 
-            if (!trimmed.Contains("://"))
+            if (!trimmed.Contains("://") && Uri.TryCreate("tcp://" + trimmed, UriKind.Absolute, out var uri))
+            if (!value.Contains("://") && Uri.TryCreate($"tcp://{value}", UriKind.Absolute, out var uri))
             {
-                if (Uri.TryCreate("tcp://" + trimmed, UriKind.Absolute, out var parsedUri) &&
-                    parsedUri != null &&
-                    !string.IsNullOrEmpty(parsedUri.Host) && parsedUri.Port > 0)
+                if (uri.Port > 0)
                 {
-                    hostname = parsedUri.Host;
-                    port = (ushort)parsedUri.Port;
+                    hostname = uri.Host;
+                    port = (ushort)uri.Port;
                     return true;
                 }
             }
@@ -109,12 +103,11 @@ namespace Pulsar.Common.DNS
 
                     if (closingBracket + 1 < trimmed.Length && trimmed[closingBracket + 1] == ':')
                     {
-                        string bracketPort = trimmed.Substring(closingBracket + 2).Trim();
-                        ushort parsedBracketPort;
-                        if (ushort.TryParse(bracketPort, out parsedBracketPort))
+                        string portPart = trimmed.Substring(closingBracket + 2).Trim();
+                        if (ushort.TryParse(portPart, out var parsedPort))
                         {
                             hostname = addressPart;
-                            port = parsedBracketPort;
+                            port = parsedPort;
                             return true;
                         }
                     }
@@ -124,23 +117,38 @@ namespace Pulsar.Common.DNS
                         return false;
                     }
                 }
+            }
+            else
+            {
+                int firstColon = trimmed.IndexOf(':');
+                int lastColon = trimmed.LastIndexOf(':');
 
-                return false;
+                if (firstColon > -1 && firstColon == lastColon && lastColon < trimmed.Length - 1)
+                {
+                    string hostPart = trimmed.Substring(0, lastColon).Trim();
+                    string portPart = trimmed.Substring(lastColon + 1).Trim();
+
+                    if (ushort.TryParse(portPart, out var parsedPort))
+                    {
+                        hostname = hostPart;
+                        port = parsedPort;
+                        return true;
+                    }
+            if (IPEndPoint.TryParse(value, out var endpoint))
+            {
+                hostname = endpoint.Address.ToString();
+                port = (ushort)endpoint.Port;
+                return true;
             }
 
-            int firstColon = trimmed.IndexOf(':');
-            int lastColon = trimmed.LastIndexOf(':');
-
-            if (firstColon > -1 && firstColon == lastColon && lastColon < trimmed.Length - 1)
+            var lastColon = value.LastIndexOf(':');
+            if (lastColon > -1 && lastColon < value.Length - 1)
             {
-                string hostPart = trimmed.Substring(0, lastColon).Trim();
-                string trailingPort = trimmed.Substring(lastColon + 1).Trim();
-
-                ushort parsedPort;
-                if (hostPart.Length > 0 && ushort.TryParse(trailingPort, out parsedPort))
+                var portPart = value[(lastColon + 1)..];
+                if (ushort.TryParse(portPart, out var parsed))
                 {
-                    hostname = hostPart;
-                    port = parsedPort;
+                    hostname = value.Substring(0, lastColon).Trim('[', ']');
+                    port = parsed;
                     return true;
                 }
             }
