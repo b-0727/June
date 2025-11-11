@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Text;
 
@@ -8,51 +7,59 @@ namespace Pulsar.Common.DNS
 {
     public class HostsConverter
     {
-
         public List<Host> RawHostsToList(string rawHosts, bool server = false)
         {
-            List<Host> hostsList = new List<Host>();
+            var hostsList = new List<Host>();
 
-            if (string.IsNullOrEmpty(rawHosts)) return hostsList;
-
-            var hosts = rawHosts.Split(';');
-
-            foreach (var hostEntry in hosts)
+            if (string.IsNullOrWhiteSpace(rawHosts))
             {
-                if (string.IsNullOrWhiteSpace(hostEntry)) continue;
+                return hostsList;
+            }
 
-                if (Uri.TryCreate(hostEntry, UriKind.Absolute, out Uri uri) &&
-                    (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            var entries = rawHosts.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var entry in entries)
+            {
+                var trimmed = entry.Trim();
+                if (trimmed.Length == 0)
                 {
-                    ushort port = (ushort)(uri.IsDefaultPort
-                        ? (uri.Scheme == Uri.UriSchemeHttps ? 443 : 80)
-                        : uri.Port);
+                    continue;
+                }
+
+                Uri parsedUri;
+                if (Uri.TryCreate(trimmed, UriKind.Absolute, out parsedUri) &&
+                    (parsedUri.Scheme == Uri.UriSchemeHttp || parsedUri.Scheme == Uri.UriSchemeHttps))
+                {
+                    ushort httpPort = (ushort)(parsedUri.IsDefaultPort
+                        ? (parsedUri.Scheme == Uri.UriSchemeHttps ? 443 : 80)
+                        : parsedUri.Port);
 
                     hostsList.Add(new Host
                     {
-                        Hostname = uri.Host,
-                        Port = port,
-                        RawHost = hostEntry
+                        Hostname = parsedUri.Host,
+                        Port = httpPort,
+                        RawHost = trimmed
                     });
                     continue;
                 }
 
-                if (TryParseHostAndPort(hostEntry, out string hostname, out ushort parsedPort))
+                string parsedHost;
+                ushort parsedPort;
+                if (TryParseHostAndPort(trimmed, out parsedHost, out parsedPort))
                 {
                     hostsList.Add(new Host
                     {
-                        Hostname = hostname,
+                        Hostname = parsedHost,
                         Port = parsedPort,
-                        RawHost = hostEntry
+                        RawHost = trimmed
                     });
                     continue;
                 }
 
                 hostsList.Add(new Host
                 {
-                    Hostname = hostEntry,
+                    Hostname = trimmed,
                     Port = 0,
-                    RawHost = hostEntry
+                    RawHost = trimmed
                 });
             }
 
@@ -61,14 +68,122 @@ namespace Pulsar.Common.DNS
 
         public string ListToRawHosts(IList<Host> hosts)
         {
-            StringBuilder rawHosts = new StringBuilder();
-
-            foreach (var host in hosts)
+            if (hosts == null || hosts.Count == 0)
             {
-                rawHosts.Append(host + ";");
+                return string.Empty;
             }
 
-            return rawHosts.ToString();
+            var builder = new StringBuilder();
+            for (int i = 0; i < hosts.Count; i++)
+            {
+                var host = hosts[i];
+                if (host == null)
+                {
+                    continue;
+                }
+
+                if (builder.Length > 0)
+                {
+                    builder.Append(';');
+                }
+
+                builder.Append(host);
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append(';');
+            }
+
+            return builder.ToString();
+        }
+
+        private static bool TryParseHostAndPort(string value, out string hostname, out ushort port)
+        {
+            hostname = null;
+            port = 0;
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            string trimmed = value.Trim();
+
+            // Handle bracketed IPv6 addresses: [address]:port
+            if (trimmed.StartsWith("[", StringComparison.Ordinal))
+            {
+                int closingBracket = trimmed.IndexOf(']');
+                if (closingBracket > 0)
+                {
+                    string addressPart = trimmed.Substring(1, closingBracket - 1).Trim();
+                    if (addressPart.Length == 0)
+                    {
+                        return false;
+                    }
+
+                    if (closingBracket + 1 < trimmed.Length && trimmed[closingBracket + 1] == ':')
+                    {
+                        string portSegment = trimmed.Substring(closingBracket + 2).Trim();
+                        ushort parsed;
+                        if (ushort.TryParse(portSegment, out parsed))
+                        {
+                            hostname = addressPart;
+                            port = parsed;
+                            return true;
+                        }
+                        hostname = addressPart;
+                        return false;
+                    }
+
+                    hostname = addressPart;
+                }
+
+                return false;
+            }
+
+            // Give URI parsing a chance (covers "host:port" without needing new APIs)
+            if (!trimmed.Contains("://"))
+            {
+                Uri tcpUri;
+                if (Uri.TryCreate("tcp://" + trimmed, UriKind.Absolute, out tcpUri) &&
+                    tcpUri != null &&
+                    tcpUri.Port > 0 &&
+                    !string.IsNullOrEmpty(tcpUri.Host))
+                {
+                    hostname = tcpUri.Host;
+                    port = (ushort)tcpUri.Port;
+                    return true;
+                }
+            }
+
+            // Fall back to a simple split on the last colon for IPv4 or hostname entries.
+            int firstColon = trimmed.IndexOf(':');
+            if (firstColon == -1)
+            {
+                hostname = trimmed;
+                return false;
+            }
+
+            int lastColon = trimmed.LastIndexOf(':');
+            if (firstColon == lastColon && lastColon < trimmed.Length - 1)
+            {
+                string hostSegment = trimmed.Substring(0, lastColon).Trim();
+                string portSegment = trimmed.Substring(lastColon + 1).Trim();
+                ushort parsedPort;
+                if (hostSegment.Length > 0 && ushort.TryParse(portSegment, out parsedPort))
+                {
+                    hostname = hostSegment;
+                    port = parsedPort;
+                    return true;
+                }
+
+                hostname = hostSegment;
+                return false;
+            }
+
+            hostname = trimmed;
+            return false;
         }
 
         private static bool TryParseHostAndPort(string value, out string hostname, out ushort port)
