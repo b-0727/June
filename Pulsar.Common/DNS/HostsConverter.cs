@@ -185,5 +185,90 @@ namespace Pulsar.Common.DNS
             hostname = trimmed;
             return false;
         }
+
+        private static bool TryParseHostAndPort(string value, out string hostname, out ushort port)
+        {
+            hostname = null;
+            port = 0;
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            string trimmed = value.Trim();
+
+            if (!trimmed.Contains("://") && Uri.TryCreate("tcp://" + trimmed, UriKind.Absolute, out var uri))
+            if (!value.Contains("://") && Uri.TryCreate($"tcp://{value}", UriKind.Absolute, out var uri))
+            {
+                if (uri.Port > 0)
+                {
+                    hostname = uri.Host;
+                    port = (ushort)uri.Port;
+                    return true;
+                }
+            }
+
+            if (trimmed.StartsWith("[", StringComparison.Ordinal))
+            {
+                int closingBracket = trimmed.IndexOf(']');
+                if (closingBracket > 0)
+                {
+                    string addressPart = trimmed.Substring(1, closingBracket - 1).Trim();
+
+                    if (closingBracket + 1 < trimmed.Length && trimmed[closingBracket + 1] == ':')
+                    {
+                        string portPart = trimmed.Substring(closingBracket + 2).Trim();
+                        if (ushort.TryParse(portPart, out var parsedPort))
+                        {
+                            hostname = addressPart;
+                            port = parsedPort;
+                            return true;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(addressPart))
+                    {
+                        hostname = addressPart;
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                int firstColon = trimmed.IndexOf(':');
+                int lastColon = trimmed.LastIndexOf(':');
+
+                if (firstColon > -1 && firstColon == lastColon && lastColon < trimmed.Length - 1)
+                {
+                    string hostPart = trimmed.Substring(0, lastColon).Trim();
+                    string portPart = trimmed.Substring(lastColon + 1).Trim();
+
+                    if (ushort.TryParse(portPart, out var parsedPort))
+                    {
+                        hostname = hostPart;
+                        port = parsedPort;
+                        return true;
+                    }
+            if (IPEndPoint.TryParse(value, out var endpoint))
+            {
+                hostname = endpoint.Address.ToString();
+                port = (ushort)endpoint.Port;
+                return true;
+            }
+
+            var lastColon = value.LastIndexOf(':');
+            if (lastColon > -1 && lastColon < value.Length - 1)
+            {
+                var portPart = value[(lastColon + 1)..];
+                if (ushort.TryParse(portPart, out var parsed))
+                {
+                    hostname = value.Substring(0, lastColon).Trim('[', ']');
+                    port = parsed;
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 }
