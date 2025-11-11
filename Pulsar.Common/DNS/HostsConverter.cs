@@ -24,16 +24,16 @@ namespace Pulsar.Common.DNS
                     continue;
                 }
 
-                if (Uri.TryCreate(trimmedEntry, UriKind.Absolute, out Uri uri) &&
-                    (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                if (Uri.TryCreate(trimmedEntry, UriKind.Absolute, out var httpUri) &&
+                    (httpUri.Scheme == Uri.UriSchemeHttp || httpUri.Scheme == Uri.UriSchemeHttps))
                 {
-                    ushort port = (ushort)(uri.IsDefaultPort
-                        ? (uri.Scheme == Uri.UriSchemeHttps ? 443 : 80)
-                        : uri.Port);
+                    ushort port = (ushort)(httpUri.IsDefaultPort
+                        ? (httpUri.Scheme == Uri.UriSchemeHttps ? 443 : 80)
+                        : httpUri.Port);
 
                     hostsList.Add(new Host
                     {
-                        Hostname = uri.Host,
+                        Hostname = httpUri.Host,
                         Port = port,
                         RawHost = trimmedEntry
                     });
